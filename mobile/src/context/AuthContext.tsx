@@ -6,6 +6,7 @@ type User = {
   id: string;
   name: string;
   email: string;
+  avatar?: string;
 };
 
 type AuthContextType = {
@@ -14,6 +15,7 @@ type AuthContextType = {
   isLoading: boolean;
   login: (userData: User, token: string) => Promise<void>;
   logout: () => Promise<void>;
+  updateUser: (userData: Partial<User>) => Promise<void>;
 };
 
 export const AuthContext = createContext<AuthContextType>({
@@ -22,6 +24,7 @@ export const AuthContext = createContext<AuthContextType>({
   isLoading: true,
   login: async () => {},
   logout: async () => {},
+  updateUser: async () => {},
 });
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
@@ -73,8 +76,20 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   };
 
+  const updateUser = async (updates: Partial<User>) => {
+    try {
+      if (user) {
+        const updatedUser = { ...user, ...updates };
+        await AsyncStorage.setItem('userData', JSON.stringify(updatedUser));
+        setUser(updatedUser);
+      }
+    } catch (e) {
+      console.error('Failed to update user', e);
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, token, isLoading, login, logout }}>
+    <AuthContext.Provider value={{ user, token, isLoading, login, logout, updateUser }}>
       {children}
     </AuthContext.Provider>
   );

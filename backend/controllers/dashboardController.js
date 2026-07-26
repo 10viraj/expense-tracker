@@ -1,13 +1,14 @@
 const Expense = require('../models/Expense');
 const Income = require('../models/Income');
 const Budget = require('../models/Budget');
+const mongoose = require('mongoose');
 
 // @desc    Get dashboard statistics
 // @route   GET /api/dashboard
 // @access  Private
 const getDashboardStats = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = new mongoose.Types.ObjectId(req.user.id);
 
     // Get current month date range
     const now = new Date();

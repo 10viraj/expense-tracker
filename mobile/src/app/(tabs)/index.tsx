@@ -8,37 +8,48 @@ import {
   ActivityIndicator,
   RefreshControl,
   Dimensions,
+  Platform,
+  Alert,
+  Image,
 } from 'react-native';
 import Svg, { Polyline, Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { Screen } from '../../components/ui/Screen';
 import apiClient from '../../api/client';
 import { AuthContext } from '../../context/AuthContext';
 import { SettingsContext } from '../../context/SettingsContext';
 
 const PremiumDark = {
-  background: '#09090E',
-  surface: '#151520',
-  surfaceLight: '#212130',
-  textMain: '#F2F2F5',
-  textMuted: '#8F8F9D',
-  primary: '#00F0FF',
-  accent: '#B047FF',
-  danger: '#FF3366',
-  glassBorder: 'rgba(255, 255, 255, 0.08)',
+  background: '#07070A',
+  surface: '#12121A',
+  surfaceElevated: '#1A1A24',
+  surfaceLight: '#22222E',
+  textMain: '#F4F4F7',
+  textMuted: '#8B8B9A',
+  textDim: '#5C5C6B',
+  primary: '#00E5FF',
+  primaryDim: 'rgba(0, 229, 255, 0.12)',
+  accent: '#A855F7',
+  accentDim: 'rgba(168, 85, 247, 0.10)',
+  danger: '#FF3B6B',
+  dangerDim: 'rgba(255, 59, 107, 0.12)',
+  success: '#00E5FF',
+  glassBorder: 'rgba(255, 255, 255, 0.07)',
+  glassBorderStrong: 'rgba(255, 255, 255, 0.12)',
 };
 
 const CATEGORY_COLORS: Record<string, string> = {
-  food: '#FF3366',
-  groceries: '#FF3366',
+  food: '#FF3B6B',
+  groceries: '#FF3B6B',
   transport: '#00D4FF',
-  shopping: '#B047FF',
+  shopping: '#A855F7',
   bills: '#FFB800',
   utilities: '#FFB800',
-  entertainment: '#00F0FF',
-  health: '#FF3366',
-  income: '#00F0FF',
-  salary: '#00F0FF',
+  entertainment: '#00E5FF',
+  health: '#FF3B6B',
+  income: '#00E5FF',
+  salary: '#00E5FF',
 };
 
 function categoryColor(item: any): string {
@@ -66,37 +77,59 @@ const SCREEN_WIDTH = Dimensions.get('window').width;
 
 function Sparkline({ points, color }: { points: number[]; color: string }) {
   if (!points || points.length < 2) return null;
-  const w = SCREEN_WIDTH - 104; // Adjust for padding
-  const h = 56;
+
+  const w = SCREEN_WIDTH - 112;
+  const h = 64;
   const min = Math.min(...points);
   const max = Math.max(...points);
   const range = max - min || 1;
   const step = w / (points.length - 1);
+
   const coords = points
-    .map((p, i) => `${i * step},${h - ((p - min) / range) * (h - 10) - 5}`)
+    .map((p, i) => {
+      const x = i * step;
+      const y = h - ((p - min) / range) * (h - 16) - 8;
+      return `${x},${y}`;
+    })
     .join(' ');
+
   const lastX = (points.length - 1) * step;
-  const lastY = h - ((points[points.length - 1] - min) / range) * (h - 10) - 5;
+  const lastY = h - ((points[points.length - 1] - min) / range) * (h - 16) - 8;
 
   return (
     <View style={styles.chartContainer}>
-      <Svg width={w} height={h} style={{ opacity: 0.9 }}>
+      <Svg width={w} height={h}>
         <Defs>
-          <LinearGradient id="grad" x1="0" y1="0" x2="1" y2="0">
-            <Stop offset="0" stopColor={color} stopOpacity="0.2" />
+          <LinearGradient id="lineGrad" x1="0" y1="0" x2="1" y2="0">
+            <Stop offset="0" stopColor={color} stopOpacity="0.15" />
+            <Stop offset="0.6" stopColor={color} stopOpacity="0.7" />
             <Stop offset="1" stopColor={color} stopOpacity="1" />
           </LinearGradient>
+          <LinearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor={color} stopOpacity="0.18" />
+            <Stop offset="1" stopColor={color} stopOpacity="0" />
+          </LinearGradient>
         </Defs>
+
+        {/* Soft area fill under the line */}
+        <Polyline
+          points={`${coords} ${lastX},${h} 0,${h}`}
+          fill="url(#areaGrad)"
+          stroke="none"
+        />
+
         <Polyline
           points={coords}
           fill="none"
-          stroke="url(#grad)"
-          strokeWidth={3}
+          stroke="url(#lineGrad)"
+          strokeWidth={2.5}
           strokeLinecap="round"
           strokeLinejoin="round"
         />
-        <Circle cx={lastX} cy={lastY} r={4} fill={color} />
-        <Circle cx={lastX} cy={lastY} r={14} fill={color} opacity={0.25} />
+
+        {/* Active point */}
+        <Circle cx={lastX} cy={lastY} r={5} fill={color} />
+        <Circle cx={lastX} cy={lastY} r={12} fill={color} opacity={0.22} />
       </Svg>
     </View>
   );
@@ -140,18 +173,18 @@ export default function DashboardScreen() {
   };
 
   const greeting = useMemo(timeOfDayGreeting, []);
-  
-  // Dummy spark points if not provided by backend
+
   const sparkPoints = data?.balanceHistory?.length
     ? data.balanceHistory
     : data
       ? [
-          data.totalBalance * 0.82,
-          data.totalBalance * 0.9,
-          data.totalBalance * 0.86,
-          data.totalBalance * 0.97,
-          data.totalBalance,
-        ]
+        data.totalBalance * 0.78,
+        data.totalBalance * 0.86,
+        data.totalBalance * 0.83,
+        data.totalBalance * 0.94,
+        data.totalBalance * 0.91,
+        data.totalBalance,
+      ]
       : [];
 
   const formatMoney = (n?: number) => {
@@ -180,30 +213,53 @@ export default function DashboardScreen() {
           />
         }
       >
-        {/* Header */}
+        {/* ── Header ── */}
         <View style={styles.header}>
           <View>
             <Text style={styles.greeting}>{greeting}</Text>
             <Text style={styles.name}>{user?.name || 'there'}</Text>
           </View>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>
-              {initials(user?.name || 'U')}
-            </Text>
+
+          <View style={styles.headerRight}>
+            <TouchableOpacity 
+              style={styles.iconButton} 
+              activeOpacity={0.7}
+              onPress={() => router.push('/activity')}
+            >
+              <Ionicons name="notifications-outline" size={22} color={PremiumDark.textMain} />
+              <View style={styles.notifDot} />
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.avatar} 
+              activeOpacity={0.8}
+              onPress={() => router.push('/profile')}
+            >
+              {user?.avatar ? (
+                <Image source={{ uri: user.avatar }} style={styles.avatarImage} />
+              ) : (
+                <Text style={styles.avatarText}>{initials(user?.name || 'U')}</Text>
+              )}
+            </TouchableOpacity>
           </View>
         </View>
 
-        {/* Balance Card - Ultimate UI */}
+        {/* ── Balance Card ── */}
         <View style={styles.balanceCard}>
-          <View style={styles.glowEffect} />
-          <View style={styles.glowEffect2} />
-          
+          <View style={styles.glowPrimary} />
+          <View style={styles.glowAccent} />
+
           <View style={styles.balanceTopRow}>
-            <Text style={styles.balanceLabel}>Total Balance</Text>
+            <View>
+              <Text style={styles.balanceLabel}>Total Spent</Text>
+              <Text style={styles.balanceAmount}>{formatMoney(data?.totalExpense)}</Text>
+            </View>
+
             <TouchableOpacity
               onPress={() => setBalanceHidden((v) => !v)}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              style={styles.eyeIconWrap}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              style={styles.eyeButton}
+              activeOpacity={0.7}
             >
               <Ionicons
                 name={balanceHidden ? 'eye-off-outline' : 'eye-outline'}
@@ -213,10 +269,6 @@ export default function DashboardScreen() {
             </TouchableOpacity>
           </View>
 
-          <Text style={styles.balanceAmount}>
-            {formatMoney(data?.totalBalance)}
-          </Text>
-
           {sparkPoints.length > 1 && !balanceHidden && (
             <View style={styles.sparkWrap}>
               <Sparkline points={sparkPoints} color={PremiumDark.primary} />
@@ -224,88 +276,73 @@ export default function DashboardScreen() {
           )}
         </View>
 
-        {/* Quick Stats - Glassmorphic Panels */}
-        <View style={styles.summaryRow}>
-          <View style={styles.summaryBox}>
-            <View style={styles.summaryBoxGlowIncome} />
-            <View style={[styles.summaryIconWrap, { backgroundColor: 'rgba(0,240,255,0.15)' }]}>
-               <Ionicons name="arrow-down" size={18} color={PremiumDark.primary} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.summaryBoxLabel}>Income</Text>
-              <Text style={[styles.summaryBoxAmount, { color: PremiumDark.textMain }]}>
-                {formatMoney(data?.totalIncome)}
-              </Text>
-            </View>
-          </View>
-          
-          <View style={styles.summaryBox}>
-            <View style={styles.summaryBoxGlowExpense} />
-            <View style={[styles.summaryIconWrap, { backgroundColor: 'rgba(255,51,102,0.15)' }]}>
-               <Ionicons name="arrow-up" size={18} color={PremiumDark.danger} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.summaryBoxLabel}>Expenses</Text>
-              <Text style={[styles.summaryBoxAmount, { color: PremiumDark.textMain }]}>
-                {formatMoney(data?.totalExpense)}
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Recent Transactions */}
+        {/* ── Recent Transactions ── */}
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Recent Transactions</Text>
-          <TouchableOpacity hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <Text style={styles.sectionTitle}>Recent</Text>
+          <TouchableOpacity hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} activeOpacity={0.7}>
             <Text style={styles.seeAll}>See All</Text>
           </TouchableOpacity>
         </View>
 
         {data?.recentTransactions && data.recentTransactions.length > 0 ? (
-          data.recentTransactions.map((item, index) => {
-            const color = item.category?.color || categoryColor(item);
-            const label = item.title || item.category?.name || 'Transaction';
-            const icon = item.category?.icon || initials(label);
-            
-            return (
-              <View key={index} style={styles.transactionItem}>
-                <View style={styles.transactionLeft}>
-                  <View style={[styles.transactionIcon, { backgroundColor: `${color}1A` }]}>
-                    {item.category?.icon ? (
-                      <Text style={{ fontSize: 20 }}>{icon}</Text>
-                    ) : (
-                      <Text style={[styles.transactionIconText, { color }]}>{icon}</Text>
-                    )}
-                  </View>
-                  <View>
-                    <Text style={styles.transactionTitle}>{label}</Text>
-                    <Text style={styles.transactionDate}>
-                      {item.category?.name || 'Category'} • {new Date(item.date).toLocaleDateString(undefined, {
-                        month: 'short',
-                        day: 'numeric',
-                      })}
-                    </Text>
-                  </View>
-                </View>
-                <Text
-                  style={[
-                    styles.transactionAmount,
-                    { color: item.type === 'expense' ? PremiumDark.textMain : PremiumDark.primary },
-                  ]}
+          <View style={styles.txList}>
+            {data.recentTransactions.map((item, index) => {
+              const color = item.category?.color || categoryColor(item);
+              const label = item.title || item.category?.name || 'Transaction';
+              const icon = item.category?.icon || initials(label);
+              const isExpense = item.type === 'expense';
+
+              return (
+                <TouchableOpacity
+                  key={index}
+                  style={styles.txItem}
+                  activeOpacity={0.75}
                 >
-                  {item.type === 'expense' ? '-' : '+'}
-                  {currency}
-                  {item.amount.toFixed(2)}
-                </Text>
-              </View>
-            );
-          })
+                  <View style={styles.txLeft}>
+                    <View style={[styles.txIcon, { backgroundColor: `${color}18` }]}>
+                      {item.category?.icon ? (
+                        <Text style={{ fontSize: 20 }}>{icon}</Text>
+                      ) : (
+                        <Text style={[styles.txIconText, { color }]}>{icon}</Text>
+                      )}
+                    </View>
+
+                    <View style={styles.txMeta}>
+                      <Text style={styles.txTitle} numberOfLines={1}>
+                        {label}
+                      </Text>
+                      <Text style={styles.txSubtitle}>
+                        {item.category?.name || 'Category'} ·{' '}
+                        {new Date(item.date).toLocaleDateString(undefined, {
+                          month: 'short',
+                          day: 'numeric',
+                        })}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <Text
+                    style={[
+                      styles.txAmount,
+                      { color: isExpense ? PremiumDark.textMain : PremiumDark.primary },
+                    ]}
+                  >
+                    {isExpense ? '−' : '+'}
+                    {currency}
+                    {item.amount.toFixed(2)}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         ) : (
           <View style={styles.emptyState}>
-            <Ionicons name="receipt-outline" size={48} color={PremiumDark.textMuted} />
-            <Text style={styles.emptyTitle}>No Transactions Yet</Text>
+            <View style={styles.emptyIconWrap}>
+              <Ionicons name="receipt-outline" size={36} color={PremiumDark.textDim} />
+            </View>
+            <Text style={styles.emptyTitle}>No transactions yet</Text>
             <Text style={styles.emptyText}>
-              Your recent activity will appear here once you start tracking.
+              Your recent activity will show up here once you start tracking.
             </Text>
           </View>
         )}
@@ -316,122 +353,163 @@ export default function DashboardScreen() {
 
 const styles = StyleSheet.create({
   scrollContainer: {
-    padding: 24,
-    paddingBottom: 40,
+    paddingHorizontal: 22,
+    paddingTop: 12,
+    paddingBottom: 48,
   },
+
+  // Header
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 32,
-    marginTop: 8,
+    marginBottom: 28,
   },
   greeting: {
-    fontSize: 16,
+    fontSize: 14,
     color: PremiumDark.textMuted,
-    marginBottom: 4,
     fontWeight: '500',
+    marginBottom: 2,
+    letterSpacing: 0.2,
   },
   name: {
-    fontSize: 30,
+    fontSize: 28,
     fontWeight: '800',
     color: PremiumDark.textMain,
-    letterSpacing: -0.5,
+    letterSpacing: -0.6,
   },
-  avatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: PremiumDark.surfaceLight,
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  iconButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: PremiumDark.surface,
     borderWidth: 1,
     borderColor: PremiumDark.glassBorder,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: PremiumDark.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 8,
+  },
+  notifDot: {
+    position: 'absolute',
+    top: 11,
+    right: 12,
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: PremiumDark.danger,
+    borderWidth: 1.5,
+    borderColor: PremiumDark.surface,
+  },
+  avatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 18,
+    backgroundColor: PremiumDark.surfaceElevated,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: PremiumDark.glassBorder,
+    overflow: 'hidden',
+  },
+  avatarImage: {
+    width: '100%',
+    height: '100%',
   },
   avatarText: {
     color: PremiumDark.textMain,
     fontWeight: '800',
-    fontSize: 20,
+    fontSize: 18,
   },
+
+  // Balance Card
   balanceCard: {
     backgroundColor: PremiumDark.surface,
     borderRadius: 28,
-    padding: 28,
-    marginBottom: 24,
+    padding: 24,
+    paddingBottom: 20,
+    marginBottom: 18,
     borderWidth: 1,
     borderColor: PremiumDark.glassBorder,
     overflow: 'hidden',
-    position: 'relative',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.5,
-    shadowRadius: 24,
-    elevation: 12,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 16 },
+        shadowOpacity: 0.45,
+        shadowRadius: 28,
+      },
+      android: { elevation: 14 },
+    }),
   },
-  glowEffect: {
+  glowPrimary: {
     position: 'absolute',
-    top: -60,
-    right: -40,
+    top: -70,
+    right: -50,
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: PremiumDark.primary,
+    opacity: 0.09,
+  },
+  glowAccent: {
+    position: 'absolute',
+    bottom: -90,
+    left: -50,
     width: 180,
     height: 180,
     borderRadius: 90,
-    backgroundColor: PremiumDark.primary,
-    opacity: 0.12,
-  },
-  glowEffect2: {
-    position: 'absolute',
-    bottom: -80,
-    left: -40,
-    width: 150,
-    height: 150,
-    borderRadius: 75,
     backgroundColor: PremiumDark.accent,
-    opacity: 0.08,
+    opacity: 0.07,
   },
   balanceTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-    zIndex: 1,
+    alignItems: 'flex-start',
+    marginBottom: 8,
+    zIndex: 2,
   },
   balanceLabel: {
     color: PremiumDark.textMuted,
-    fontSize: 14,
-    fontWeight: '700',
-    letterSpacing: 0.8,
+    fontSize: 13,
+    fontWeight: '600',
+    letterSpacing: 0.6,
     textTransform: 'uppercase',
-  },
-  eyeIconWrap: {
-    padding: 6,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderRadius: 14,
+    marginBottom: 8,
   },
   balanceAmount: {
     color: PremiumDark.textMain,
-    fontSize: 52,
+    fontSize: 42,
     fontWeight: '800',
-    letterSpacing: -1.5,
-    marginBottom: 12,
-    zIndex: 1,
+    letterSpacing: -1.4,
+  },
+  eyeButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1,
+    borderColor: PremiumDark.glassBorder,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   chartContainer: {
-    height: 56,
+    height: 64,
     width: '100%',
   },
   sparkWrap: {
-    marginLeft: -4,
-    marginTop: 8,
-    zIndex: 1,
+    marginTop: 6,
+    marginLeft: -2,
+    zIndex: 2,
   },
+
+  // Summary
   summaryRow: {
     flexDirection: 'row',
-    gap: 16,
+    gap: 12,
     marginBottom: 32,
   },
   summaryBox: {
@@ -440,133 +518,162 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
     backgroundColor: PremiumDark.surface,
-    borderRadius: 24,
-    padding: 16,
+    borderRadius: 20,
+    paddingVertical: 16,
+    paddingHorizontal: 14,
     borderWidth: 1,
     borderColor: PremiumDark.glassBorder,
     overflow: 'hidden',
-    position: 'relative',
   },
-  summaryBoxGlowIncome: {
+  summaryGlowIncome: {
     position: 'absolute',
-    top: -30,
-    left: -30,
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    top: -28,
+    left: -28,
+    width: 70,
+    height: 70,
+    borderRadius: 35,
     backgroundColor: PremiumDark.primary,
-    opacity: 0.06,
+    opacity: 0.07,
   },
-  summaryBoxGlowExpense: {
+  summaryGlowExpense: {
     position: 'absolute',
-    top: -30,
-    left: -30,
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    top: -28,
+    left: -28,
+    width: 70,
+    height: 70,
+    borderRadius: 35,
     backgroundColor: PremiumDark.danger,
-    opacity: 0.06,
+    opacity: 0.07,
   },
-  summaryIconWrap: {
-    width: 42,
-    height: 42,
-    borderRadius: 16,
+  summaryIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 13,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  summaryBoxLabel: {
-    fontSize: 13,
+  summaryTextCol: {
+    flex: 1,
+  },
+  summaryLabel: {
+    fontSize: 12,
     color: PremiumDark.textMuted,
-    marginBottom: 4,
     fontWeight: '600',
+    marginBottom: 3,
   },
-  summaryBoxAmount: {
-    fontSize: 19,
+  summaryValue: {
+    fontSize: 17,
     fontWeight: '800',
-    letterSpacing: -0.5,
+    color: PremiumDark.textMain,
+    letterSpacing: -0.3,
   },
+
+  // Section
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-end',
-    marginBottom: 16,
+    alignItems: 'center',
+    marginBottom: 14,
   },
   sectionTitle: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '800',
     color: PremiumDark.textMain,
-    letterSpacing: -0.4,
+    letterSpacing: -0.3,
   },
   seeAll: {
     color: PremiumDark.primary,
     fontWeight: '700',
-    fontSize: 15,
-    marginBottom: 2,
+    fontSize: 14,
   },
-  transactionItem: {
+
+  // Transactions
+  txList: {
+    gap: 10,
+  },
+  txItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     backgroundColor: PremiumDark.surface,
-    padding: 16,
-    borderRadius: 20,
-    marginBottom: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: PremiumDark.glassBorder,
   },
-  transactionLeft: {
+  txLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
+    gap: 14,
+    flex: 1,
+    marginRight: 12,
   },
-  transactionIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 18,
+  txIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: 15,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  transactionIconText: {
-    fontSize: 18,
+  txIconText: {
+    fontSize: 17,
     fontWeight: '800',
   },
-  transactionTitle: {
-    fontSize: 17,
+  txMeta: {
+    flex: 1,
+  },
+  txTitle: {
+    fontSize: 15.5,
     fontWeight: '700',
     color: PremiumDark.textMain,
-    marginBottom: 4,
+    marginBottom: 3,
   },
-  transactionDate: {
-    fontSize: 13,
+  txSubtitle: {
+    fontSize: 12.5,
     color: PremiumDark.textMuted,
     fontWeight: '500',
   },
-  transactionAmount: {
-    fontSize: 18,
+  txAmount: {
+    fontSize: 16,
     fontWeight: '800',
+    letterSpacing: -0.2,
   },
+
+  // Empty
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 56,
+    paddingHorizontal: 28,
+  },
+  emptyIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 24,
+    backgroundColor: PremiumDark.surface,
+    borderWidth: 1,
+    borderColor: PremiumDark.glassBorder,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 18,
+  },
+  emptyTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: PremiumDark.textMain,
+    marginBottom: 6,
+  },
+  emptyText: {
+    fontSize: 14,
+    color: PremiumDark.textMuted,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+
   center: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: PremiumDark.background,
-  },
-  emptyState: {
-    alignItems: 'center',
-    paddingVertical: 64,
-    paddingHorizontal: 32,
-  },
-  emptyTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: PremiumDark.textMain,
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  emptyText: {
-    fontSize: 15,
-    color: PremiumDark.textMuted,
-    textAlign: 'center',
-    lineHeight: 22,
   },
 });

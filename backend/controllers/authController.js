@@ -35,9 +35,10 @@ const registerUser = async (req, res) => {
 
     if (user) {
       res.status(201).json({
-        _id: user.id,
+        _id: user._id,
         name: user.name,
         email: user.email,
+        avatar: user.avatar,
         token: generateToken(user._id),
       });
     } else {
@@ -61,9 +62,10 @@ const loginUser = async (req, res) => {
 
     if (user && (await user.matchPassword(password))) {
       res.json({
-        _id: user.id,
+        _id: user._id,
         name: user.name,
         email: user.email,
+        avatar: user.avatar,
         token: generateToken(user._id),
       });
     } else {
@@ -87,8 +89,42 @@ const getProfile = async (req, res) => {
   }
 };
 
+// @desc    Update user profile
+// @route   PUT /api/auth/profile
+// @access  Private
+const updateProfile = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    
+    if (user) {
+      user.name = req.body.name || user.name;
+      user.email = req.body.email || user.email;
+      
+      if (req.body.avatar !== undefined) {
+        user.avatar = req.body.avatar;
+      }
+      
+      const updatedUser = await user.save();
+      
+      res.status(200).json({
+        _id: updatedUser._id,
+        name: updatedUser.name,
+        email: updatedUser.email,
+        avatar: updatedUser.avatar,
+        token: generateToken(updatedUser._id), // Optionally re-issue token
+      });
+    } else {
+      res.status(404);
+      throw new Error('User not found');
+    }
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
 module.exports = {
   registerUser,
   loginUser,
   getProfile,
+  updateProfile,
 };

@@ -5,7 +5,35 @@ const Category = require('../models/Category');
 // @access  Private
 const getCategories = async (req, res) => {
   try {
-    const categories = await Category.find({ user: req.user.id });
+    let categories = await Category.find({ user: req.user.id });
+
+    // Auto-seed default categories if user has none
+    if (categories.length === 0) {
+      const defaultCategories = [
+        { name: 'Food', icon: '🍔', color: '#FF3366', type: 'expense' },
+        { name: 'Groceries', icon: '🛒', color: '#00F0FF', type: 'expense' },
+        { name: 'Home', icon: '🏠', color: '#B047FF', type: 'expense' },
+        { name: 'Transport', icon: '🚗', color: '#FFB800', type: 'expense' },
+        { name: 'Fuel', icon: '⛽', color: '#FF3366', type: 'expense' },
+        { name: 'Bills', icon: '💡', color: '#00F0FF', type: 'expense' },
+        { name: 'Shopping', icon: '🛍️', color: '#B047FF', type: 'expense' },
+        { name: 'Entertainment', icon: '🎬', color: '#FFB800', type: 'expense' },
+        { name: 'Health', icon: '🏥', color: '#FF3366', type: 'expense' },
+        { name: 'Travel', icon: '✈️', color: '#00F0FF', type: 'expense' },
+        { name: 'Education', icon: '📚', color: '#B047FF', type: 'expense' },
+        { name: 'Work', icon: '💼', color: '#FFB800', type: 'expense' },
+        { name: 'EMI & Loans', icon: '💳', color: '#FF3366', type: 'expense' },
+        { name: 'Subscriptions', icon: '📱', color: '#00F0FF', type: 'expense' },
+        { name: 'Gifts', icon: '🎁', color: '#B047FF', type: 'expense' },
+        { name: 'Pets', icon: '🐶', color: '#FFB800', type: 'expense' },
+        { name: 'Personal Care', icon: '❤️', color: '#FF3366', type: 'expense' },
+        { name: 'Investment', icon: '💰', color: '#00F0FF', type: 'expense' },
+        { name: 'Miscellaneous', icon: '📦', color: '#8F8F9D', type: 'expense' }
+      ].map(cat => ({ ...cat, user: req.user.id }));
+
+      categories = await Category.insertMany(defaultCategories);
+    }
+
     res.status(200).json(categories);
   } catch (error) {
     res.status(400).json({ message: error.message });

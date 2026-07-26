@@ -27,6 +27,10 @@ const userSchema = new mongoose.Schema(
       default: 'USD',
       enum: ['USD', 'INR', 'EUR'],
     },
+    avatar: {
+      type: String, // Store base64 data URL
+      default: '',
+    },
     theme: {
       type: String,
       default: 'light',
