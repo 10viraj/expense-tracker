@@ -10,14 +10,17 @@ import {
   RefreshControl,
   Dimensions,
   Platform,
+  Alert,
 } from 'react-native';
-import Svg, { Polyline, Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
+import Svg, { Rect, Polyline, Circle, Defs, LinearGradient, Stop, Text as SvgText } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '../../components/ui/Screen';
 import { SettingsContext } from '../../context/SettingsContext';
 import apiClient from '../../api/client';
 import { AddExpenseModal } from '../../components/AddExpenseModal';
 import { SearchBar } from '../../components/ui/SearchBar';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 
 const PremiumDark = {
   background: '#09090E',
@@ -97,14 +100,95 @@ function Sparkline({ points, color }: { points: number[]; color: string }) {
   );
 }
 
+// --- BAR CHART ---
+type BarChartProps = {
+  data: { label: string; value: number; color: string }[];
+  currency: string;
+};
+function BarChart({ data, currency }: BarChartProps) {
+  const CHART_H = 140;
+  const BAR_AREA_H = 90;
+  const BAR_W = 28;
+  const GAP = 18;
+  const LABEL_H = 28;
+  if (!data.length) {
+    return (
+      <View style={{ alignItems: 'center', paddingVertical: 24 }}>
+        <Text style={{ color: PremiumDark.textMuted, fontSize: 13 }}>No data for this period</Text>
+      </View>
+    );
+  }
+  const maxVal = Math.max(...data.map(d => d.value), 1);
+  const totalW = data.length * (BAR_W + GAP);
+  const svgW = Math.max(totalW, SCREEN_WIDTH - 56);
+
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+      <Svg width={svgW} height={CHART_H + LABEL_H}>
+        {data.map((d, i) => {
+          const barH = Math.max(4, (d.value / maxVal) * BAR_AREA_H);
+          const x = i * (BAR_W + GAP) + GAP / 2;
+          const y = CHART_H - barH;
+          const valLabel = d.value >= 1000
+            ? `${currency}${(d.value / 1000).toFixed(1)}k`
+            : `${currency}${d.value.toFixed(0)}`;
+          return (
+            <React.Fragment key={d.label}>
+              {/* Bar */}
+              <Defs>
+                <LinearGradient id={`bg${i}`} x1="0" y1="0" x2="0" y2="1">
+                  <Stop offset="0" stopColor={d.color} stopOpacity="0.95" />
+                  <Stop offset="1" stopColor={d.color} stopOpacity="0.35" />
+                </LinearGradient>
+              </Defs>
+              <Rect
+                x={x}
+                y={y}
+                width={BAR_W}
+                height={barH}
+                rx={6}
+                fill={`url(#bg${i})`}
+              />
+              {/* Amount above bar */}
+              <SvgText
+                x={x + BAR_W / 2}
+                y={y - 5}
+                textAnchor="middle"
+                fontSize="9"
+                fontWeight="700"
+                fill={d.color}
+              >
+                {valLabel}
+              </SvgText>
+              {/* Category label below */}
+              <SvgText
+                x={x + BAR_W / 2}
+                y={CHART_H + 16}
+                textAnchor="middle"
+                fontSize="10"
+                fontWeight="600"
+                fill={PremiumDark.textMuted}
+              >
+                {d.label.length > 6 ? d.label.slice(0, 6) + '…' : d.label}
+              </SvgText>
+            </React.Fragment>
+          );
+        })}
+      </Svg>
+    </ScrollView>
+  );
+}
+
 export default function ExpensesScreen() {
   const { currency } = useContext(SettingsContext);
+  const [filterMode, setFilterMode] = useState<'day' | 'month' | 'year'>('month');
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [isAddModalVisible, setIsAddModalVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [isExporting, setIsExporting] = useState(false);
 
   const fetchExpenses = async () => {
     try {
@@ -127,26 +211,54 @@ export default function ExpensesScreen() {
     fetchExpenses();
   };
 
-  const filtered = useMemo(() => {
-    let result = expenses;
-    if (activeCategory) {
-      result = result.filter((e) => e.category?.name === activeCategory);
-    }
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      result = result.filter(
-        (e) =>
-          e.title.toLowerCase().includes(q) ||
-          (e.category?.name || '').toLowerCase().includes(q)
-      );
-    }
-    return result;
-  }, [activeCategory, searchQuery, expenses]);
+  // Period-filtered expenses (for report + transactions list)
+  const periodFiltered = useMemo(() => {
+    const now = new Date();
+    return expenses.filter(e => {
+      const d = new Date(e.date);
+      if (filterMode === 'day') {
+        return d.toDateString() === now.toDateString();
+      } else if (filterMode === 'month') {
+        return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+      } else {
+        return d.getFullYear() === now.getFullYear();
+      }
+    });
+  }, [expenses, filterMode]);
+
+  const periodTotal = useMemo(
+    () => periodFiltered.reduce((s, e) => s + e.amount, 0),
+    [periodFiltered]
+  );
+
+  const barChartData = useMemo(() => {
+    const totals: Record<string, { value: number; color: string }> = {};
+    periodFiltered.forEach(e => {
+      const name = e.category?.name || 'Other';
+      if (!totals[name]) totals[name] = { value: 0, color: e.category?.color || PremiumDark.primary };
+      totals[name].value += e.amount;
+    });
+    return Object.entries(totals)
+      .map(([label, d]) => ({ label, ...d }))
+      .sort((a, b) => b.value - a.value);
+  }, [periodFiltered]);
+
 
   const total = useMemo(
     () => expenses.reduce((sum, e) => sum + e.amount, 0),
     [expenses]
   );
+  const filtered2 = useMemo(() => {
+    let result = periodFiltered;
+    if (activeCategory) result = result.filter(e => e.category?.name === activeCategory);
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(
+        e => e.title.toLowerCase().includes(q) || (e.category?.name || '').toLowerCase().includes(q)
+      );
+    }
+    return result;
+  }, [activeCategory, searchQuery, periodFiltered]);
 
   const sparkPoints = useMemo(() => {
     const dailyTotals: Record<string, number> = {};
@@ -166,7 +278,7 @@ export default function ExpensesScreen() {
 
   const categoryTotals = useMemo(() => {
     const totals: Record<string, { total: number; icon: string; color: string }> = {};
-    expenses.forEach((e) => {
+    periodFiltered.forEach((e) => {
       const catName = e.category?.name || 'Unknown';
       if (!totals[catName]) {
         totals[catName] = {
@@ -183,7 +295,7 @@ export default function ExpensesScreen() {
   }, [expenses]);
 
   const groupedData = useMemo(() => {
-    const sorted = [...filtered].sort(
+    const sorted = [...filtered2].sort(
       (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
     );
     const groups: { title: string; data: Expense[] }[] = [];
@@ -207,7 +319,7 @@ export default function ExpensesScreen() {
       else groups.push({ title, data: [exp] });
     });
     return groups;
-  }, [filtered]);
+  }, [filtered2]);
 
   const renderItem = ({ item }: { item: Expense }) => {
     const cat = item.category;
@@ -240,18 +352,125 @@ export default function ExpensesScreen() {
     );
   };
 
+  const FILTER_OPTIONS: { key: 'day' | 'month' | 'year'; label: string }[] = [
+    { key: 'day', label: 'Today' },
+    { key: 'month', label: 'Month' },
+    { key: 'year', label: 'Year' },
+  ];
+
+  const filterLabel = filterMode === 'day' ? 'Today' : filterMode === 'month' ? 'This Month' : 'This Year';
+
+  const exportToExcel = async () => {
+    if (isExporting) return;
+    setIsExporting(true);
+    try {
+      // --- Build CSV content ---
+      const escapeCell = (val: string | number) => {
+        const s = String(val);
+        // Wrap in quotes if contains comma, quote, or newline
+        if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+          return `"${s.replace(/"/g, '""')}"`;
+        }
+        return s;
+      };
+
+      const headers = ['Date', 'Title', 'Category', `Amount (${currency})`, 'Period'];
+      const dataRows = periodFiltered.map(e => [
+        new Date(e.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+        e.title,
+        e.category?.name || 'Unknown',
+        e.amount.toFixed(2),
+        filterLabel,
+      ]);
+
+      // Total row
+      dataRows.push(['', 'TOTAL', '', periodTotal.toFixed(2), '']);
+
+      const csvLines = [
+        headers.map(escapeCell).join(','),
+        ...dataRows.map(row => row.map(escapeCell).join(',')),
+      ];
+      const csvContent = csvLines.join('\n');
+
+      // --- Write to file ---
+      const fileName = `Expenses_${filterLabel.replace(/ /g, '_')}_${Date.now()}.csv`;
+      const fileUri = FileSystem.documentDirectory + fileName;
+
+      await FileSystem.writeAsStringAsync(fileUri, csvContent, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+
+      // --- Share ---
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(fileUri, {
+          mimeType: 'text/csv',
+          dialogTitle: `Expenses Report — ${filterLabel}`,
+          UTI: 'public.comma-separated-values-text',
+        });
+      } else {
+        Alert.alert('Sharing not available', 'Your device does not support file sharing.');
+      }
+    } catch (err) {
+      console.error('Export failed', err);
+      Alert.alert('Export Failed', 'Could not generate the file. Please try again.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   const renderHeader = () => (
     <>
       {/* TOTAL CARD */}
       <View style={styles.topSummaryCard}>
         <View style={styles.summaryGlow} />
-        <Text style={styles.summaryLabel}>Total Spent</Text>
+        <Text style={styles.summaryLabel}>Total Spent — {filterLabel}</Text>
         <Text style={styles.summaryAmount}>
           {currency}
-          {total.toFixed(2)}
+          {periodTotal.toFixed(2)}
         </Text>
-        <Text style={styles.summaryTrendLabel}>Last 7 days</Text>
+        <Text style={styles.summaryTrendLabel}>Last 7 days trend</Text>
         <Sparkline points={sparkPoints} color={PremiumDark.danger} />
+      </View>
+
+      {/* REPORTS SECTION */}
+      <View style={styles.reportCard}>
+        <View style={styles.reportHeader}>
+          <Text style={styles.reportTitle}>Reports</Text>
+          <TouchableOpacity
+            style={[styles.exportBtn, isExporting && styles.exportBtnDisabled]}
+            onPress={exportToExcel}
+            activeOpacity={0.8}
+            disabled={isExporting}
+          >
+            <Ionicons name={isExporting ? 'hourglass-outline' : 'download-outline'} size={14} color="#fff" style={{ marginRight: 5 }} />
+            <Text style={styles.exportBtnText}>{isExporting ? 'Exporting…' : 'Export Excel'}</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Segmented Filter */}
+        <View style={styles.filterRow}>
+          {FILTER_OPTIONS.map(opt => (
+            <TouchableOpacity
+              key={opt.key}
+              style={[styles.filterChip, filterMode === opt.key && styles.filterChipActive]}
+              onPress={() => {
+                setFilterMode(opt.key);
+                setActiveCategory(null);
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.filterChipText, filterMode === opt.key && styles.filterChipTextActive]}>
+                {opt.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* Bar Chart */}
+        <View style={styles.barChartWrap}>
+          <BarChart data={barChartData} currency={currency} />
+        </View>
       </View>
 
       {/* CATEGORIES */}
@@ -451,7 +670,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   summaryAmount: {
-    fontSize: 40,
+    fontSize: 36,
     fontWeight: '800',
     color: PremiumDark.textMain,
     letterSpacing: -1.2,
@@ -466,6 +685,72 @@ const styles = StyleSheet.create({
   chartContainer: {
     height: 56,
     width: '100%',
+  },
+
+  // --- REPORTS ---
+  reportCard: {
+    marginHorizontal: 20,
+    marginBottom: 24,
+    backgroundColor: PremiumDark.surface,
+    borderRadius: 20,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: PremiumDark.glassBorder,
+  },
+  reportHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  reportTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: PremiumDark.textMain,
+    letterSpacing: -0.2,
+  },
+  exportBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1A6B3A',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 10,
+  },
+  exportBtnDisabled: {
+    opacity: 0.55,
+  },
+  exportBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  filterRow: {
+    flexDirection: 'row',
+    backgroundColor: PremiumDark.surfaceLight,
+    borderRadius: 12,
+    padding: 4,
+    marginBottom: 20,
+  },
+  filterChip: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: 'center',
+    borderRadius: 9,
+  },
+  filterChipActive: {
+    backgroundColor: PremiumDark.danger,
+  },
+  filterChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: PremiumDark.textMuted,
+  },
+  filterChipTextActive: {
+    color: '#FFFFFF',
+  },
+  barChartWrap: {
+    minHeight: 80,
   },
 
   // --- SECTION TITLES ---
